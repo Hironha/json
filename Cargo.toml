@@ -1,0 +1,14 @@
+[package]
+name = "json"
+version = "0.1.0"
+edition = "2024"
+
+[profile.dev]
+opt-level = 1
+debug = "limited"
+
+[profile.release]
+lto = "fat"
+strip = "symbols"
+
+[dependencies]

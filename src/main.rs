@@ -80,8 +80,9 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
         }
     }
 
+    // TODO: actually check if all ascii whitepace are valid whitespaces
     fn is_whitespace(&self, ch: char) -> bool {
-        ch == ' '
+        ch.is_ascii_whitespace()
     }
 
     fn next_pos(&mut self, ch: char) {
@@ -90,6 +91,17 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
             self.line += 1;
         } else {
             self.col += 1;
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Some(ch) = self.src.peek().copied() {
+            if self.is_whitespace(ch) {
+                let space = self.src.next().unwrap();
+                self.next_pos(space);
+            } else {
+                break;
+            }
         }
     }
 
@@ -135,46 +147,42 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
     }
 
     fn parse_number(&mut self) -> Result<Value, JsonParserError> {
-        let first_digit = self.src.next();
-        assert!(first_digit.as_ref().is_some_and(char::is_ascii_digit));
-        let first_digit = first_digit.unwrap();
-        self.next_pos(first_digit);
+        let mut buf = String::new();
+        if let Some('-') = self.src.peek().copied() {
+            let minus = self.src.next().unwrap();
+            self.next_pos(minus);
+            buf.push(minus);
+        }
 
-        let mut number = String::from(first_digit);
-        while let Some(ch) = self.src.peek().copied() {
-            match ch {
-                '.' => break,
-                ch if ch.is_ascii_digit() => {
-                    number.push(ch);
-                    let digit = self.src.next().expect("digit exists due peek");
-                    self.next_pos(digit);
-                }
-                ch => {
-                    let msg = format!("expected a digit but received '{ch}'");
-                    return Err(self.error(msg));
-                }
-            }
+        // TODO: add support for exponential format
+        let Some(ch @ '0'..='9') = self.src.next() else {
+            return Err(self.eof());
+        };
+        self.next_pos(ch);
+        buf.push(ch);
+        while let Some('0'..='9') = self.src.peek().copied() {
+            let d = self.src.next().unwrap();
+            self.next_pos(d);
+            buf.push(d);
         }
 
         if let Some('.') = self.src.peek().copied() {
-            let decimal_separator = self.src.next().expect("should be a decimal separator");
-            self.next_pos(decimal_separator);
-            number.push(decimal_separator);
-            while let Some(ch) = self.src.next() {
-                self.next_pos(ch);
-                match ch {
-                    ch if ch.is_ascii_digit() => number.push(ch),
-                    ch if self.is_whitespace(ch) => break,
-                    ch => {
-                        let msg = format!("expected a digit but received '{ch}'");
-                        return Err(self.error(msg));
-                    }
-                }
+            let separator = self.src.next().expect("should be a decimal separator");
+            self.next_pos(separator);
+            buf.push(separator);
+            let Some(ch @ '0'..='9') = self.src.next() else {
+                return Err(self.eof());
+            };
+            self.next_pos(ch);
+            buf.push(ch);
+            while let Some('0'..='9') = self.src.peek().copied() {
+                let d = self.src.next().unwrap();
+                self.next_pos(d);
+                buf.push(d);
             }
         }
 
-        number
-            .parse::<f64>()
+        buf.parse::<f64>()
             .map(Value::Number)
             .map_err(|err| self.error(err.to_string()))
     }
@@ -185,32 +193,129 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
         let quotes = quotes.unwrap();
         self.next_pos(quotes);
 
-        let mut closed = false;
         let mut buf = String::new();
-        while let Some(ch) = self.src.next() {
-            self.next_pos(ch);
-            match ch {
-                '"' => {
-                    closed = true;
-                    break;
-                }
-                ch => buf.push(ch),
+        loop {
+            match self.src.next() {
+                Some('"') => break,
+                Some(ch) => buf.push(ch),
+                None => return Err(self.eof()),
             }
-        }
-
-        if !closed {
-            return Err(self.eof());
         }
 
         Ok(Value::String(buf))
     }
 
     fn parse_array(&mut self) -> Result<Value, JsonParserError> {
-        todo!()
+        let bracket = self.src.next();
+        assert_eq!(bracket, Some('['));
+        let bracket = bracket.unwrap();
+        self.next_pos(bracket);
+
+        let mut values = Vec::<Value>::new();
+        loop {
+            match self.src.peek().copied() {
+                Some(']') => {
+                    let bracket = self.src.next().unwrap();
+                    self.next_pos(bracket);
+                    break;
+                }
+                Some(ch) if self.is_whitespace(ch) => {
+                    let space = self.src.next().unwrap();
+                    self.next_pos(space);
+                    continue;
+                }
+                Some(_) => {
+                    let value = self.parse()?;
+                    values.push(value);
+                    self.skip_whitespace();
+                    let Some(ch) = self.src.next() else {
+                        return Err(self.eof());
+                    };
+                    self.next_pos(ch);
+                    match ch {
+                        ',' => {}
+                        ']' => break,
+                        ch => {
+                            let msg = format!(
+                                "expected either array value separator ',' or end of array character ']', but received '{ch}'"
+                            );
+                            return Err(self.error(msg));
+                        }
+                    }
+                }
+                None => return Err(self.eof()),
+            };
+        }
+
+        Ok(Value::Array(values))
     }
 
+    // TODO: refactor this code, it actually looks like crap right now
     fn parse_object(&mut self) -> Result<Value, JsonParserError> {
-        todo!()
+        let brace = self.src.next();
+        assert_eq!(brace, Some('{'));
+        let brace = brace.unwrap();
+        self.next_pos(brace);
+
+        let mut values = HashMap::<String, Value>::new();
+        loop {
+            match self.src.peek().copied() {
+                Some('}') => {
+                    let brace = self.src.next().unwrap();
+                    self.next_pos(brace);
+                    break;
+                }
+                Some(ch) if self.is_whitespace(ch) => {
+                    let space = self.src.next().unwrap();
+                    self.next_pos(space);
+                    continue;
+                }
+                Some(_) => {
+                    let key = match self.parse()? {
+                        Value::String(key) => key,
+                        _ => {
+                            // TODO: improve error message
+                            let msg = "expected object key to be a string";
+                            return Err(self.error(msg));
+                        }
+                    };
+                    self.skip_whitespace();
+                    let Some(ch) = self.src.next() else {
+                        return Err(self.eof());
+                    };
+                    self.next_pos(ch);
+                    if ch != ':' {
+                        let msg = format!(
+                            "expected character ':' after an object key but received '{ch}'"
+                        );
+                        return Err(self.error(msg));
+                    }
+
+                    self.skip_whitespace();
+                    let value = self.parse()?;
+                    values.insert(key, value);
+
+                    self.skip_whitespace();
+                    let Some(ch) = self.src.next() else {
+                        return Err(self.eof());
+                    };
+                    self.next_pos(ch);
+                    match ch {
+                        '}' => break,
+                        ',' => {}
+                        ch => {
+                            let msg = format!(
+                                "expected either object key value separator ',' or end of character '}}', but received '{ch}'"
+                            );
+                            return Err(self.error(msg));
+                        }
+                    }
+                }
+                None => return Err(self.eof()),
+            };
+        }
+
+        Ok(Value::Object(values))
     }
 }
 
@@ -311,5 +416,90 @@ mod tests {
             let value = parsed.unwrap();
             assert_eq!(value, Value::String(out));
         }
+    }
+
+    #[test]
+    fn parse_array_works() {
+        let src = r#"[1, 1.0, true, false, null, "name", "hironha", "123", ["nested_array"]]"#;
+        let mut parser = JsonParser::new(src.chars());
+        let parsed = parser.parse_array();
+        assert!(parsed.is_ok(), "should be able to parse array");
+
+        let array = parsed.unwrap();
+        let Value::Array(arr) = array else {
+            panic!("should have parsed an array");
+        };
+        let mut iter = arr.into_iter();
+        assert_eq!(iter.next(), Some(Value::Number(1.0)));
+        assert_eq!(iter.next(), Some(Value::Number(1.0)));
+        assert_eq!(iter.next(), Some(Value::Bool(true)));
+        assert_eq!(iter.next(), Some(Value::Bool(false)));
+        assert_eq!(iter.next(), Some(Value::Null));
+        assert_eq!(iter.next(), Some(Value::String(String::from("name"))));
+        assert_eq!(iter.next(), Some(Value::String(String::from("hironha"))));
+        assert_eq!(iter.next(), Some(Value::String(String::from("123"))));
+
+        let Value::Array(nested) = iter.next().unwrap() else {
+            panic!("should have parsed a nested array");
+        };
+        let mut nested_iter = nested.into_iter();
+        assert_eq!(
+            nested_iter.next(),
+            Some(Value::String(String::from("nested_array")))
+        );
+    }
+
+    #[test]
+    fn parse_object_works() {
+        let src = r#"{
+            "name": "test",
+            "wife": null,
+            "age": 23,
+            "happy": false,
+            "weight": 56.50,
+            "traits": ["male", "nerd"],
+            "pets": {
+                "name": "nina"
+            }
+        }"#
+        .trim();
+        let mut parser = JsonParser::new(src.chars());
+        let parsed = parser.parse_object();
+        if let Err(ref err) = parsed {
+            println!("{err}");
+        }
+        assert!(parsed.is_ok(), "should be able to parse object");
+
+        let Value::Object(map) = parsed.unwrap() else {
+            panic!("should have parsed an object");
+        };
+        let name = map.get("name").unwrap().clone();
+        assert_eq!(name, Value::String(String::from("test")));
+
+        let wife = map.get("wife").unwrap().clone();
+        assert_eq!(wife, Value::Null);
+
+        let age = map.get("age").unwrap().clone();
+        assert_eq!(age, Value::Number(23.0));
+
+        let happy = map.get("happy").unwrap().clone();
+        assert_eq!(happy, Value::Bool(false));
+
+        let weight = map.get("weight").unwrap().clone();
+        assert_eq!(weight, Value::Number(56.50));
+
+        let Value::Array(traits) = map.get("traits").unwrap().clone() else {
+            panic!("traits should be an array");
+        };
+        let mut traits = traits.into_iter();
+        assert_eq!(traits.next().unwrap(), Value::String(String::from("male")));
+        assert_eq!(traits.next().unwrap(), Value::String(String::from("nerd")));
+        assert!(traits.next().is_none());
+
+        let Value::Object(pets) = map.get("pets").unwrap().clone() else {
+            panic!("pets should be an object");
+        };
+        let pet_name = pets.get("name").unwrap().clone();
+        assert_eq!(pet_name, Value::String(String::from("nina")));
     }
 }

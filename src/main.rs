@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::error;
 use std::fmt;
 use std::iter::Peekable;
@@ -10,7 +10,60 @@ pub enum Value {
     Number(f64),
     String(String),
     Array(Vec<Value>),
-    Object(HashMap<String, Value>),
+    Object(BTreeMap<String, Value>),
+}
+
+impl Value {
+    // TODO: maybe move the format implementation to another struct
+    pub fn format(&self) -> String {
+        let mut buf = String::new();
+        self.format_in(&mut buf);
+        buf
+    }
+
+    fn format_in(&self, buf: &mut String) {
+        match self {
+            Self::Null => buf.push_str("null"),
+            Self::Bool(true) => buf.push_str("true"),
+            Self::Bool(false) => buf.push_str("false"),
+            Self::String(s) => {
+                buf.push('"');
+                buf.push_str(s);
+                buf.push('"');
+            }
+            Self::Number(n) => buf.push_str(&n.to_string()),
+            Self::Array(arr) => {
+                buf.push('[');
+                for (idx, v) in arr.iter().enumerate() {
+                    v.format_in(buf);
+                    if idx != arr.len() - 1 {
+                        buf.push_str(", ");
+                    }
+                }
+                buf.push(']');
+            }
+            Self::Object(map) => {
+                buf.push('{');
+                for (idx, (key, value)) in map.iter().enumerate() {
+                    buf.push('"');
+                    buf.push_str(key);
+                    buf.push_str(r#"": "#);
+                    value.format_in(buf);
+                    if idx != map.len() - 1 {
+                        buf.push_str(", ");
+                    }
+                }
+                buf.push('}');
+            }
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let fmt = self.format();
+        write!(f, "{fmt}")
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -257,7 +310,7 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
         let brace = brace.unwrap();
         self.next_pos(brace);
 
-        let mut values = HashMap::<String, Value>::new();
+        let mut values = BTreeMap::<String, Value>::new();
         loop {
             match self.src.peek().copied() {
                 Some('}') => {
@@ -501,5 +554,37 @@ mod tests {
         };
         let pet_name = pets.get("name").unwrap().clone();
         assert_eq!(pet_name, Value::String(String::from("nina")));
+    }
+
+    #[test]
+    fn value_format_works() {
+        let value = Value::Null;
+        assert_eq!(value.format(), "null");
+
+        let value = Value::Bool(true);
+        assert_eq!(value.format(), "true");
+
+        let value = Value::Bool(false);
+        assert_eq!(value.format(), "false");
+
+        let value = Value::String(String::from("test"));
+        assert_eq!(value.format(), r#""test""#);
+
+        let value = Value::Number(12.345);
+        assert_eq!(value.format(), "12.345");
+
+        let arr = vec![Value::Null, Value::Bool(false), Value::Number(1.23)];
+        let value = Value::Array(arr);
+        assert_eq!(value.format(), "[null, false, 1.23]");
+
+        let mut map = BTreeMap::new();
+        map.insert(String::from("alive"), Value::Bool(true));
+        map.insert(String::from("times_cried"), Value::Number(123.0));
+        map.insert(String::from("wife"), Value::Null);
+        let value = Value::Object(map);
+        assert_eq!(
+            value.format(),
+            r#"{"alive": true, "times_cried": 123, "wife": null}"#
+        );
     }
 }

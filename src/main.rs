@@ -158,6 +158,14 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
         }
     }
 
+    fn eat(&mut self) -> Result<char, JsonParserError> {
+        let Some(ch) = self.src.next() else {
+            return Err(self.eof());
+        };
+        self.next_pos(ch);
+        Ok(ch)
+    }
+
     fn read_word(&mut self, word: &str) -> Result<(), JsonParserError> {
         for w in word.chars() {
             let Some(ch) = self.src.next() else {
@@ -202,36 +210,33 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
     fn parse_number(&mut self) -> Result<Value, JsonParserError> {
         let mut buf = String::new();
         if let Some('-') = self.src.peek().copied() {
-            let minus = self.src.next().unwrap();
-            self.next_pos(minus);
-            buf.push(minus);
+            buf.push(self.eat()?);
         }
 
         // TODO: add support for exponential format
-        let Some(ch @ '0'..='9') = self.src.next() else {
-            return Err(self.eof());
-        };
-        self.next_pos(ch);
+        let ch = self.eat()?;
+        if !ch.is_ascii_digit() {
+            let msg = format!("expected a digit but received character '{ch}'");
+            return Err(self.error(msg));
+        }
         buf.push(ch);
+
         while let Some('0'..='9') = self.src.peek().copied() {
-            let d = self.src.next().unwrap();
-            self.next_pos(d);
-            buf.push(d);
+            buf.push(self.eat()?);
         }
 
         if let Some('.') = self.src.peek().copied() {
-            let separator = self.src.next().expect("should be a decimal separator");
-            self.next_pos(separator);
-            buf.push(separator);
-            let Some(ch @ '0'..='9') = self.src.next() else {
-                return Err(self.eof());
-            };
-            self.next_pos(ch);
+            buf.push(self.eat()?);
+
+            let ch = self.eat()?;
+            if !ch.is_ascii_digit() {
+                let msg = format!("expected a digit but received character '{ch}'");
+                return Err(self.error(msg));
+            }
             buf.push(ch);
+
             while let Some('0'..='9') = self.src.peek().copied() {
-                let d = self.src.next().unwrap();
-                self.next_pos(d);
-                buf.push(d);
+                buf.push(self.eat()?);
             }
         }
 
@@ -241,10 +246,7 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
     }
 
     fn parse_string(&mut self) -> Result<Value, JsonParserError> {
-        let quotes = self.src.next();
-        assert_eq!(quotes, Some('"'));
-        let quotes = quotes.unwrap();
-        self.next_pos(quotes);
+        assert_eq!(self.eat()?, '"', "string should start with quotes");
 
         let mut buf = String::new();
         loop {
@@ -259,33 +261,24 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
     }
 
     fn parse_array(&mut self) -> Result<Value, JsonParserError> {
-        let bracket = self.src.next();
-        assert_eq!(bracket, Some('['));
-        let bracket = bracket.unwrap();
-        self.next_pos(bracket);
+        assert_eq!(self.eat()?, '[', "array should start with square brackets");
 
         let mut values = Vec::<Value>::new();
         loop {
             match self.src.peek().copied() {
                 Some(']') => {
-                    let bracket = self.src.next().unwrap();
-                    self.next_pos(bracket);
+                    self.eat()?;
                     break;
                 }
                 Some(ch) if self.is_whitespace(ch) => {
-                    let space = self.src.next().unwrap();
-                    self.next_pos(space);
-                    continue;
+                    self.eat()?;
                 }
                 Some(_) => {
                     let value = self.parse()?;
                     values.push(value);
+
                     self.skip_whitespace();
-                    let Some(ch) = self.src.next() else {
-                        return Err(self.eof());
-                    };
-                    self.next_pos(ch);
-                    match ch {
+                    match self.eat()? {
                         ',' => {}
                         ']' => break,
                         ch => {
@@ -305,23 +298,17 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
 
     // TODO: refactor this code, it actually looks like crap right now
     fn parse_object(&mut self) -> Result<Value, JsonParserError> {
-        let brace = self.src.next();
-        assert_eq!(brace, Some('{'));
-        let brace = brace.unwrap();
-        self.next_pos(brace);
+        assert_eq!(self.eat()?, '{', "object should start with curly braces");
 
         let mut values = BTreeMap::<String, Value>::new();
         loop {
             match self.src.peek().copied() {
                 Some('}') => {
-                    let brace = self.src.next().unwrap();
-                    self.next_pos(brace);
+                    self.eat()?;
                     break;
                 }
                 Some(ch) if self.is_whitespace(ch) => {
-                    let space = self.src.next().unwrap();
-                    self.next_pos(space);
-                    continue;
+                    self.eat()?;
                 }
                 Some(_) => {
                     let key = match self.parse()? {
@@ -332,11 +319,9 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
                             return Err(self.error(msg));
                         }
                     };
+
                     self.skip_whitespace();
-                    let Some(ch) = self.src.next() else {
-                        return Err(self.eof());
-                    };
-                    self.next_pos(ch);
+                    let ch = self.eat()?;
                     if ch != ':' {
                         let msg = format!(
                             "expected character ':' after an object key but received '{ch}'"
@@ -349,11 +334,7 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
                     values.insert(key, value);
 
                     self.skip_whitespace();
-                    let Some(ch) = self.src.next() else {
-                        return Err(self.eof());
-                    };
-                    self.next_pos(ch);
-                    match ch {
+                    match self.eat()? {
                         '}' => break,
                         ',' => {}
                         ch => {

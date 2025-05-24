@@ -21,7 +21,7 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let formatter = Formatter::standard();
         let out = formatter.format(self);
-        write!(f, "{out}")
+        out.fmt(f)
     }
 }
 

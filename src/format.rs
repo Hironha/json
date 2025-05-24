@@ -1,6 +1,6 @@
-use super::Value;
-
 use std::collections::BTreeMap;
+
+use super::Value;
 
 #[derive(Clone, Debug)]
 pub struct Formatter {
@@ -62,8 +62,7 @@ impl Formatter {
     }
 
     fn format_arr_spaced(&self, buf: &mut String, arr: &[Value]) {
-        buf.push('[');
-        buf.push('\n');
+        buf.push_str("[\n");
         for _ in 0..self.spacing {
             buf.push(' ');
         }
@@ -71,8 +70,7 @@ impl Formatter {
         for (idx, v) in arr.iter().enumerate() {
             self.format_in(buf, v);
             if idx != arr.len() - 1 {
-                buf.push(',');
-                buf.push('\n');
+                buf.push_str(",\n");
                 for _ in 0..self.spacing {
                     buf.push(' ');
                 }
@@ -96,8 +94,7 @@ impl Formatter {
         for (idx, (k, v)) in obj.iter().enumerate() {
             buf.push('"');
             buf.push_str(k);
-            buf.push('"');
-            buf.push(':');
+            buf.push_str(r#"":"#);
 
             self.format_in(buf, v);
             if idx != obj.len() - 1 {

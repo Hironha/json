@@ -42,25 +42,41 @@ impl Formatter {
         buf.push('"');
     }
 
-    // TODO: maybe separate in two methods to avoid all these ifs
     fn format_arr(&self, buf: &mut String, arr: &[Value]) {
-        buf.push('[');
         if self.spacing > 0 {
-            buf.push('\n');
-            for _ in 0..self.spacing {
-                buf.push(' ');
+            self.format_arr_spaced(buf, arr);
+        } else {
+            self.format_arr_unspaced(buf, arr);
+        }
+    }
+
+    fn format_arr_unspaced(&self, buf: &mut String, arr: &[Value]) {
+        buf.push('[');
+
+        for (idx, v) in arr.iter().enumerate() {
+            self.format_in(buf, v);
+            if idx != arr.len() - 1 {
+                buf.push(',');
             }
+        }
+
+        buf.push(']');
+    }
+
+    fn format_arr_spaced(&self, buf: &mut String, arr: &[Value]) {
+        buf.push('[');
+        buf.push('\n');
+        for _ in 0..self.spacing {
+            buf.push(' ');
         }
 
         for (idx, v) in arr.iter().enumerate() {
             self.format_in(buf, v);
             if idx != arr.len() - 1 {
                 buf.push(',');
-                if self.spacing > 0 {
-                    buf.push('\n');
-                    for _ in 0..self.spacing {
-                        buf.push(' ');
-                    }
+                buf.push('\n');
+                for _ in 0..self.spacing {
+                    buf.push(' ');
                 }
             }
         }
@@ -68,42 +84,53 @@ impl Formatter {
         buf.push(']');
     }
 
-    // TODO: maybe separate in two methods to avoid all these ifs
     fn format_object(&self, buf: &mut String, obj: &BTreeMap<String, Value>) {
-        buf.push('{');
         if self.spacing > 0 {
-            buf.push('\n');
-            for _ in 0..self.spacing {
-                buf.push(' ');
-            }
+            self.format_object_spaced(buf, obj);
+        } else {
+            self.format_object_unspaced(buf, obj);
         }
+    }
+
+    fn format_object_unspaced(&self, buf: &mut String, obj: &BTreeMap<String, Value>) {
+        buf.push('{');
 
         for (idx, (k, v)) in obj.iter().enumerate() {
             buf.push('"');
             buf.push_str(k);
             buf.push('"');
             buf.push(':');
-            if self.spacing > 0 {
-                buf.push(' ');
-            }
 
             self.format_in(buf, v);
             if idx != obj.len() - 1 {
                 buf.push(',');
-                if self.spacing > 0 {
-                    buf.push('\n');
-                    for _ in 0..self.spacing {
-                        buf.push(' ');
-                    }
+            }
+        }
+
+        buf.push('}');
+    }
+
+    fn format_object_spaced(&self, buf: &mut String, obj: &BTreeMap<String, Value>) {
+        buf.push_str("{\n");
+        for _ in 0..self.spacing {
+            buf.push(' ');
+        }
+
+        for (idx, (k, v)) in obj.iter().enumerate() {
+            buf.push('"');
+            buf.push_str(k);
+            buf.push_str(r#"": "#);
+
+            self.format_in(buf, v);
+            if idx != obj.len() - 1 {
+                buf.push_str(",\n");
+                for _ in 0..self.spacing {
+                    buf.push(' ');
                 }
             }
         }
 
-        if self.spacing > 0 {
-            buf.push('\n')
-        }
-
-        buf.push('}');
+        buf.push_str("\n}");
     }
 }
 

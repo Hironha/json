@@ -143,4 +143,37 @@ mod tests {
             r#"{"alive":true,"times_cried":123,"wife":null}"#
         );
     }
+
+    #[test]
+    fn formattter_with_spacing_works() {
+        let formatter = Formatter::standard();
+        let value = Value::Null;
+        assert_eq!(formatter.format(&value), "null");
+
+        let value = Value::Bool(true);
+        assert_eq!(formatter.format(&value), "true");
+
+        let value = Value::Bool(false);
+        assert_eq!(formatter.format(&value), "false");
+
+        let value = Value::String(String::from("test"));
+        assert_eq!(formatter.format(&value), r#""test""#);
+
+        let value = Value::Number(12.345);
+        assert_eq!(formatter.format(&value), "12.345");
+
+        let arr = vec![Value::Null, Value::Bool(false), Value::Number(1.23)];
+        let value = Value::Array(arr);
+        assert_eq!(formatter.format(&value), "[\n  null,\n  false,\n  1.23]");
+
+        let mut map = BTreeMap::new();
+        map.insert(String::from("alive"), Value::Bool(true));
+        map.insert(String::from("times_cried"), Value::Number(123.0));
+        map.insert(String::from("wife"), Value::Null);
+        let value = Value::Object(map);
+        assert_eq!(
+            formatter.format(&value),
+            "{\n  \"alive\": true,\n  \"times_cried\": 123,\n  \"wife\": null\n}"
+        );
+    }
 }

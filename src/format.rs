@@ -8,8 +8,6 @@ pub struct Formatter {
 }
 
 impl Formatter {
-    // TODO: maybe rename to something more explicit, since this makes the formatter
-    // format without any spaces
     pub fn new() -> Self {
         Self { spacing: 0 }
     }

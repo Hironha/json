@@ -92,7 +92,7 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
         }
     }
 
-    // TODO: actually check if all ascii whitepace are valid whitespaces
+    // TODO: actually check if all ascii whitepace are valid json whitespaces
     fn is_whitespace(&self, ch: char) -> bool {
         ch.is_ascii_whitespace()
     }
@@ -255,7 +255,6 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
         Ok(Value::Array(values))
     }
 
-    // TODO: refactor this code, it actually looks like crap right now
     fn parse_object(&mut self) -> Result<Value, JsonParserError> {
         assert_eq!(self.eat()?, '{', "object should start with curly braces");
 
@@ -273,7 +272,6 @@ impl<T: Iterator<Item = char>> JsonParser<T> {
                     let key = match self.parse()? {
                         Value::String(key) => key,
                         _ => {
-                            // TODO: improve error message
                             let msg = "expected object key to be a string";
                             return Err(self.error(msg));
                         }
